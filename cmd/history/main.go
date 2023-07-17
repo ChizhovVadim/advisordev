@@ -14,7 +14,7 @@ import (
 const Concurrency = 6
 
 var logger = log.New(os.Stderr, "", log.LstdFlags|log.Lshortfile)
-var historyCandleService = candlestorage.NewCandleStorage("/Users/vadimchizhov/TradingData/Forts/")
+var historyCandleService = candlestorage.NewCandleStorage(MapPath("~/TradingData/Forts/"))
 
 func main() {
 	var start = time.Now()
@@ -28,8 +28,7 @@ func main() {
 
 func testSi() error {
 	const slippage = 0.0002
-	var secCodes = QuarterSecurityCodes("Si", 2009, 0, 2022, 3)
-	//var secCodes = QuarterSecurityCodes("Si", 2016, 0, 2022, 3)
+	var secCodes = QuarterSecurityCodes("Si", 2009, 0, 2023, 2)
 	var hprs, err = history.MultiContractHprs(historyCandleService, secCodes, func() core.Advisor {
 		return advisors.TestAdvisor(logger)
 	}, slippage, IsAfterLongHolidays, Concurrency)

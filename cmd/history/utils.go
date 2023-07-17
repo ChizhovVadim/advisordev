@@ -3,6 +3,10 @@ package main
 import (
 	"advisordev/internal/core"
 	"fmt"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -42,4 +46,22 @@ func IsAfterLongHolidays(l, r time.Time) bool {
 		}
 	}
 	return false
+}
+
+func MapPath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		curUser, err := user.Current()
+		if err != nil {
+			return path
+		}
+		return filepath.Join(curUser.HomeDir, strings.TrimPrefix(path, "~/"))
+	}
+	if strings.HasPrefix(path, "./") {
+		var exePath, err = os.Executable()
+		if err != nil {
+			return path
+		}
+		return filepath.Join(filepath.Dir(exePath), strings.TrimPrefix(path, "./"))
+	}
+	return path
 }
