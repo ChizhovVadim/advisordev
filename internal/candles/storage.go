@@ -1,10 +1,11 @@
-package candlestorage
+package candles
 
 import (
-	"advisordev/internal/core"
+	"advisordev/internal/domain"
 	"encoding/csv"
 	"fmt"
 	"io"
+	"iter"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,18 +14,27 @@ import (
 
 type CandleStorage struct {
 	folderPath string
+	loc        *time.Location
 }
 
-func NewCandleStorage(folderPath string) *CandleStorage {
-	return &CandleStorage{folderPath: folderPath}
+func NewCandleStorage(
+	folderPath string,
+	timeframe string,
+	loc *time.Location,
+) *CandleStorage {
+	return &CandleStorage{
+		folderPath: filepath.Join(folderPath, timeframe), //os.MkdirAll(folderPath, os.ModePerm)
+		loc:        loc,
+	}
 }
 
 func (srv *CandleStorage) fileName(securityCode string) string {
 	return filepath.Join(srv.folderPath, securityCode+".txt")
 }
 
+// obsolete
 func (srv *CandleStorage) Walk(securityCode string,
-	onCandle func(core.Candle) error) error {
+	onCandle func(domain.Candle) error) error {
 	var path = srv.fileName(securityCode)
 	var file, err = os.Open(path)
 	if err != nil {
@@ -32,6 +42,7 @@ func (srv *CandleStorage) Walk(securityCode string,
 	}
 	defer file.Close()
 	var reader = csv.NewReader(file)
+	//reader.Comma = ';'
 	reader.Read()
 	for {
 		rec, err := reader.Read()
@@ -41,7 +52,7 @@ func (srv *CandleStorage) Walk(securityCode string,
 			}
 			return fmt.Errorf("CandleStorage.Walk %w", err)
 		}
-		candle, err := parseHistoryCandle(rec)
+		candle, err := parseCandleMetastock(rec, srv.loc)
 		if err != nil {
 			return fmt.Errorf("CandleStorage.Walk %v %w", rec, err)
 		}
@@ -53,28 +64,65 @@ func (srv *CandleStorage) Walk(securityCode string,
 	}
 }
 
-func (srv *CandleStorage) Last(securityCode string) (core.Candle, error) {
+func (srv *CandleStorage) Candles(
+	securityCode string,
+) iter.Seq2[domain.Candle, error] {
+	return func(yield func(domain.Candle, error) bool) {
+		var path = srv.fileName(securityCode)
+		var file, err = os.Open(path)
+		if err != nil {
+			yield(domain.Candle{}, err)
+			return
+		}
+		defer file.Close()
+		var reader = csv.NewReader(file)
+		//reader.Comma = ';'
+		reader.Read()
+		for {
+			rec, err := reader.Read()
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				yield(domain.Candle{}, err)
+				return
+			}
+			candle, err := parseCandleMetastock(rec, srv.loc)
+			if err != nil {
+				yield(domain.Candle{}, err)
+				return
+			}
+			candle.SecurityCode = securityCode
+			if !yield(candle, nil) {
+				return
+			}
+		}
+	}
+}
+
+func (srv *CandleStorage) Last(securityCode string) (domain.Candle, error) {
 	path := srv.fileName(securityCode)
 	exists, err := isPathExists(path)
 	if err != nil {
-		return core.Candle{}, err
+		return domain.Candle{}, err
 	}
 	if !exists {
-		return core.Candle{}, nil
+		return domain.Candle{}, nil
 	}
 
-	var result core.Candle
-	err = srv.Walk(securityCode, func(c core.Candle) error {
+	var result domain.Candle
+	err = srv.Walk(securityCode, func(c domain.Candle) error {
 		result = c
 		return nil
 	})
 	if err != nil {
-		return core.Candle{}, err
+		return domain.Candle{}, err
 	}
 	return result, nil
 }
 
-func (srv *CandleStorage) Update(securityCode string, candles []core.Candle) error {
+// Дописывает в конец файла
+func (srv *CandleStorage) Update(securityCode string, candles []domain.Candle) error {
 	f, err := os.OpenFile(srv.fileName(securityCode), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
 		return err
@@ -102,42 +150,6 @@ func (srv *CandleStorage) Update(securityCode string, candles []core.Candle) err
 	}
 	csv.Flush()
 	return csv.Error()
-}
-
-func parseHistoryCandle(record []string) (candle core.Candle, err error) {
-	d, err := time.ParseInLocation("20060102", record[2], core.Moscow)
-	if err != nil {
-		return
-	}
-	t, err := strconv.Atoi(record[3])
-	if err != nil {
-		return
-	}
-	var hour = t / 10000
-	var min = (t / 100) % 100
-	d = d.Add(time.Duration(hour)*time.Hour + time.Duration(min)*time.Minute)
-	o, err := strconv.ParseFloat(record[4], 64)
-	if err != nil {
-		return
-	}
-	h, err := strconv.ParseFloat(record[5], 64)
-	if err != nil {
-		return
-	}
-	l, err := strconv.ParseFloat(record[6], 64)
-	if err != nil {
-		return
-	}
-	c, err := strconv.ParseFloat(record[7], 64)
-	if err != nil {
-		return
-	}
-	v, err := strconv.ParseFloat(record[8], 64)
-	if err != nil {
-		return
-	}
-	candle = core.Candle{DateTime: d, OpenPrice: o, HighPrice: h, LowPrice: l, ClosePrice: c, Volume: v}
-	return
 }
 
 func isPathExists(path string) (bool, error) {

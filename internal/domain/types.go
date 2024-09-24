@@ -1,14 +1,6 @@
-package core
+package domain
 
-import (
-	"errors"
-	"time"
-)
-
-var (
-	ErrNotImplemented = errors.New("not implemented")
-	ErrNoData         = errors.New("no data")
-)
+import "time"
 
 type Candle struct {
 	SecurityCode string

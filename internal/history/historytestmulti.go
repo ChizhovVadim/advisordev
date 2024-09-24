@@ -1,7 +1,9 @@
 package history
 
 import (
-	"advisordev/internal/core"
+	"advisordev/internal/domain"
+	"advisordev/internal/utils"
+	"iter"
 	"log"
 	"math"
 	"sort"
@@ -155,54 +157,51 @@ func concatHprs(hprsByContracts [][]DateSum) []DateSum {
 }
 
 type ICandleStorage interface {
-	Walk(securityCode string, onCandle func(core.Candle) error) error
+	Walk(securityCode string, onCandle func(domain.Candle) error) error
+	Candles(securityCode string) iter.Seq2[domain.Candle, error]
 }
 
 func SingleContractHprs(
 	historyCandleService ICandleStorage,
 	securityCode string,
-	advisorBuilder func() core.Advisor,
+	advisorBuilder func() domain.Advisor,
 	slippage float64,
 	skipPnl func(time.Time, time.Time) bool) ([]DateSum, error) {
 
 	var result []DateSum
 	var pnl = 0.0
-	var baseAdvice = core.Advice{}
-	var lastAdvice = core.Advice{}
+	var baseAdvice = domain.Advice{}
+	var lastAdvice = domain.Advice{}
 	var advisor = advisorBuilder()
 
-	var err = historyCandleService.Walk(securityCode,
-		func(candle core.Candle) error {
-
-			var advice = advisor(candle)
-			if advice.DateTime.IsZero() {
-				return nil
-			}
-			if baseAdvice.DateTime.IsZero() {
-				baseAdvice = advice
-				lastAdvice = advice
-				return nil
-			}
-			if core.IsNewFortsDateStarted(lastAdvice.DateTime, advice.DateTime) {
-				var ds = DateSum{Date: core.DateTimeToDate(lastAdvice.DateTime), Sum: 1 + pnl/baseAdvice.Price}
-				result = append(result, ds)
-				pnl = 0
-				baseAdvice = lastAdvice
-			}
-			if !skipPnl(lastAdvice.DateTime, advice.DateTime) {
-				pnl += lastAdvice.Position*(advice.Price-lastAdvice.Price) -
-					slippage*advice.Price*math.Abs(advice.Position-lastAdvice.Position)
-			}
+	for candle, err := range historyCandleService.Candles(securityCode) {
+		if err != nil {
+			return nil, err
+		}
+		var advice = advisor(candle)
+		if advice.DateTime.IsZero() {
+			continue
+		}
+		if baseAdvice.DateTime.IsZero() {
+			baseAdvice = advice
 			lastAdvice = advice
-
-			return nil
-		})
-	if err != nil {
-		return nil, err
+			continue
+		}
+		if utils.IsNewFortsDateStarted(lastAdvice.DateTime, advice.DateTime) {
+			var ds = DateSum{Date: DateTimeToDate(lastAdvice.DateTime), Sum: 1 + pnl/baseAdvice.Price}
+			result = append(result, ds)
+			pnl = 0
+			baseAdvice = lastAdvice
+		}
+		if !skipPnl(lastAdvice.DateTime, advice.DateTime) {
+			pnl += lastAdvice.Position*(advice.Price-lastAdvice.Price) -
+				slippage*advice.Price*math.Abs(advice.Position-lastAdvice.Position)
+		}
+		lastAdvice = advice
 	}
 
 	if !lastAdvice.DateTime.IsZero() {
-		var ds = DateSum{Date: core.DateTimeToDate(lastAdvice.DateTime), Sum: 1 + pnl/baseAdvice.Price}
+		var ds = DateSum{Date: DateTimeToDate(lastAdvice.DateTime), Sum: 1 + pnl/baseAdvice.Price}
 		result = append(result, ds)
 	}
 	return result, nil
@@ -211,11 +210,15 @@ func SingleContractHprs(
 func MultiContractHprs(
 	historyCandleService ICandleStorage,
 	secCodes []string,
-	advisorBuilder func() core.Advisor,
+	advisorBuilder func() domain.Advisor,
 	slippage float64,
 	skipPnl func(time.Time, time.Time) bool,
 	concurrency int,
 ) ([]DateSum, error) {
+	if len(secCodes) == 1 {
+		return SingleContractHprs(historyCandleService, secCodes[0], advisorBuilder, slippage, skipPnl)
+	}
+
 	var index int32 = -1
 	var wg = &sync.WaitGroup{}
 	var hprsByContracts = make([][]DateSum, len(secCodes))
@@ -246,12 +249,12 @@ func MultiContractHprs(
 
 func AdvisorStatus(historyCandleService ICandleStorage,
 	securityCode string,
-	advisorBuilder func() core.Advisor) error {
+	advisorBuilder func() domain.Advisor) error {
 
 	var advisor = advisorBuilder()
-	var advices []core.Advice
+	var advices []domain.Advice
 
-	var err = historyCandleService.Walk(securityCode, func(candle core.Candle) error {
+	var err = historyCandleService.Walk(securityCode, func(candle domain.Candle) error {
 		var advice = advisor(candle)
 		if advice.DateTime.IsZero() {
 			return nil

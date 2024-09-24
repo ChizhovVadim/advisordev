@@ -1,4 +1,4 @@
-package core
+package utils
 
 import "math"
 
@@ -14,7 +14,7 @@ func Moments(source []float64) (mean, stDev float64) {
 	}
 
 	if n == 0 {
-		panic("Sequence contains no elements")
+		return math.NaN(), math.NaN()
 	}
 
 	stDev = math.Sqrt(M2 / float64(n))
@@ -24,4 +24,18 @@ func Moments(source []float64) (mean, stDev float64) {
 func StDev(source []float64) float64 {
 	var _, stDev = Moments(source)
 	return stDev
+}
+
+func Min(x, y int) int {
+	if x < y {
+		return x
+	}
+	return y
+}
+
+func Max(x, y int) int {
+	if x > y {
+		return x
+	}
+	return y
 }

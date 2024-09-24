@@ -1,7 +1,8 @@
 package history
 
 import (
-	"advisordev/internal/core"
+	"advisordev/internal/domain"
+	"advisordev/internal/utils"
 	"fmt"
 	"io"
 	"math"
@@ -19,13 +20,15 @@ type DateSum struct {
 }
 
 type HprStatistcs struct {
-	MonthHpr     float64
-	StDev        float64
-	AVaR         float64
-	DayHprs      []DateSum
-	MonthHprs    []DateSum
-	YearHprs     []DateSum
-	DrawdownInfo DrawdownInfo
+	MonthHpr           float64
+	StDev              float64
+	AVaR               float64
+	DayHprs            []DateSum
+	MonthHprs          []DateSum
+	YearHprs           []DateSum
+	DrawdownInfo       DrawdownInfo
+	ProfitableRating   []DateSum
+	UnprofitableRating []DateSum
 }
 
 type DrawdownInfo struct {
@@ -43,8 +46,18 @@ func ComputeHprStatistcs(hprs []DateSum) HprStatistcs {
 	report.YearHprs = hprsByPeriod(hprs, firstDayOfYear)
 	report.MonthHpr = math.Pow(totalHpr(hprs), 22.0/float64(len(hprs)))
 	report.StDev = stDevHprs(hprs)
-	report.AVaR = cvarHprs(hprs)
 	report.DrawdownInfo = computeDrawdownInfo(hprs)
+
+	var sortedHprs = make([]DateSum, len(hprs))
+	copy(sortedHprs, hprs)
+	sort.Slice(sortedHprs, func(i, j int) bool {
+		return sortedHprs[i].Sum < sortedHprs[j].Sum
+	})
+	report.AVaR = meanBySum(sortedHprs[:len(sortedHprs)/20])
+	//TODO make copy
+	report.ProfitableRating = sortedHprs[utils.Max(0, len(sortedHprs)-10):]
+	report.UnprofitableRating = sortedHprs[:utils.Min(len(sortedHprs), 10)]
+
 	return report
 }
 
@@ -93,20 +106,15 @@ func stDevHprs(source []DateSum) float64 {
 	for i := range source {
 		x[i] = math.Log(source[i].Sum)
 	}
-	return core.StDev(x)
+	return utils.StDev(x)
 }
 
-func cvarHprs(hprs []DateSum) float64 {
-	var count = (len(hprs) - 1) / 20
-	if count < 1 {
-		return math.NaN()
-	}
+func meanBySum(hprs []DateSum) float64 {
 	var items = make([]float64, len(hprs))
 	for i := range items {
 		items[i] = hprs[i].Sum
 	}
-	sort.Float64s(items)
-	mean, _ := core.Moments(items[:count])
+	mean, _ := utils.Moments(items)
 	return mean
 }
 
@@ -133,17 +141,19 @@ func PrintHprReport(report HprStatistcs) {
 	w.Flush()
 
 	fmt.Println("Доходности по дням")
-	var dayHprs = report.DayHprs
-	if skip := len(dayHprs) - 20; skip > 0 {
-		dayHprs = dayHprs[skip:]
-	}
-	PrintHprs(dayHprs)
+	PrintHprs(report.DayHprs[utils.Max(0, len(report.DayHprs)-20):])
 
 	fmt.Println("Доходности по месяцам")
 	PrintHprs(report.MonthHprs)
 
 	fmt.Println("Доходности по годам")
 	PrintHprs(report.YearHprs)
+
+	fmt.Println("Самые прибыльные дни")
+	PrintHprs(report.ProfitableRating)
+
+	fmt.Println("Самые убыточные дни")
+	PrintHprs(report.UnprofitableRating)
 }
 
 func hprPercent(hpr float64) float64 {
@@ -169,12 +179,8 @@ func PrintHprs(source []DateSum) {
 	w.Flush()
 }
 
-func PrintAdvices(advices []core.Advice) {
-	var w = newTabWriter()
-	fmt.Fprintf(w, "Security\tTime\tPrice\tPosition\t\n")
+func PrintAdvices(advices []domain.Advice) {
 	for _, item := range advices {
-		fmt.Fprintf(w, "%v\t%v\t%v\t%.2f\t\n",
-			item.SecurityCode, item.DateTime.Format("2006-01-02T15:04"), item.Price, item.Position)
+		fmt.Println(item)
 	}
-	w.Flush()
 }
