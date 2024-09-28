@@ -39,3 +39,7 @@ func TimeOfDay(t time.Time) time.Duration {
 func IsNewPeriod(l, r time.Time, period time.Duration) bool {
 	return TimeOfDay(l) < period && period <= TimeOfDay(r)
 }
+
+func YearsBetween(start, finish time.Time) float64 {
+	return float64(finish.Sub(start)/(24*time.Hour)) / 365.25
+}

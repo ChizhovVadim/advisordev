@@ -58,6 +58,11 @@ func ApproxExpirationDate(securityCode string) time.Time {
 // Sample: "Si-3.17" -> "SiH7"
 // http://moex.com/s205
 func EncodeSecurity(securityName string) (string, error) {
+	// вечные фьючерсы
+	if strings.HasSuffix(securityName, "F") {
+		return securityName, nil
+	}
+
 	const MonthCodes = "FGHJKMNQUVXZ"
 	var parts = strings.SplitN(securityName, "-", 2)
 	var name = parts[0]
@@ -71,7 +76,7 @@ func EncodeSecurity(securityName string) (string, error) {
 		return "", err
 	}
 
-	//TODO hack
+	// курс китайский юань – российский рубль
 	if name == "CNY" {
 		name = "CR"
 	}
