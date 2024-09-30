@@ -3,7 +3,6 @@ package main
 import (
 	"advisordev/internal/trader"
 	"advisordev/internal/utils"
-	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -100,7 +99,7 @@ func run(logWrapper *LogWrapper) error {
 	defer fQuikCallback.Close()
 	var quikCallbackLogger = log.New(fQuikCallback, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)*/
 
-	return trader.Run(context.Background(), logger, settings.StrategyConfigs, client, quietMode)
+	return trader.Run(logger, settings.StrategyConfigs, client, quietMode)
 }
 
 func buildLogFilePath(clientKey string, date time.Time, name string) string {

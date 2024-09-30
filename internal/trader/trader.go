@@ -20,7 +20,6 @@ import (
 )
 
 func Run(
-	ctx context.Context,
 	logger *slog.Logger,
 	strategyConfigs []advisors.StrategyConfig,
 	client Client,
@@ -28,6 +27,9 @@ func Run(
 ) error {
 	logger.Info("trader::Run started.")
 	defer logger.Info("trader::Run stopped.")
+
+	gracefulShutdownCtx, gracefulShutdownCancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer gracefulShutdownCancel()
 
 	mainConn, err := quik.InitConnection(client.Port)
 	if err != nil {
@@ -43,44 +45,20 @@ func Run(
 	}
 	defer callbackConn.Close()
 
-	g, ctx := errgroup.WithContext(ctx)
-
-	g.Go(func() error {
-		return handleUserStopRequest(ctx, logger)
-	})
-
-	g.Go(func() error {
-		<-ctx.Done()
-		return callbackConn.Close()
-	})
+	g, ctx := errgroup.WithContext(context.Background())
 
 	var newCandles = make(chan quik.Candle, 16)
 
 	g.Go(func() error {
-		defer callbackConn.Close()
 		return handleCallbacks(ctx, logger, callbackConn, newCandles)
 	})
 
 	g.Go(func() error {
-		return runStrategies(ctx, logger, quikService, client, strategyConfigs, newCandles, quietMode)
+		defer callbackConn.Close() // сможет завершиться handleCallbacks!
+		return runStrategies(ctx, gracefulShutdownCtx, logger, quikService, client, strategyConfigs, newCandles, quietMode)
 	})
 
 	return g.Wait()
-}
-
-func handleUserStopRequest(
-	ctx context.Context,
-	logger *slog.Logger,
-) error {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-c:
-		logger.Info("Interrupt...")
-		return errors.New("Interrupt")
-	}
 }
 
 func handleCallbacks(
@@ -129,6 +107,7 @@ type StrategyEntry struct {
 
 func runStrategies(
 	ctx context.Context,
+	gracefulShutdownCtx context.Context,
 	logger *slog.Logger,
 	quikService *quik.QuikService,
 	client Client,
@@ -171,29 +150,18 @@ func runStrategies(
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case newCandle := <-newCandles:
-			const interval = quik.CandleIntervalM5
-			if newCandle.Interval == interval {
-				for i := range strategies {
-					var strategy = &strategies[i]
-					if strategy.securityCode == newCandle.SecCode {
-						var logger = logger.With("security", strategy.securityCode)
-						if quietMode {
-							var err = onNewCandle_QuietMode(logger, strategy, newCandle)
-							if err != nil {
-								logger.Error("onNewCandle_QuietMode",
-									"err", err)
-							}
-						} else {
-							var err = onNewCandle(logger, strategy, newCandle, availableAmount, quikService)
-							if err != nil {
-								logger.Error("onNewCandle",
-									"err", err)
-							}
-						}
-						break
-					}
-				}
+		case <-gracefulShutdownCtx.Done():
+			logger.Info("graceful shutdown...")
+			return nil
+		case newCandle, ok := <-newCandles:
+			if !ok {
+				newCandles = nil
+				continue
+			}
+			var err = handleNewCandle(logger, strategies, newCandle, quietMode, quikService, availableAmount)
+			if err != nil {
+				logger.Error("handleNewCandle",
+					"err", err)
 			}
 		}
 	}
@@ -292,6 +260,7 @@ func initStrategy(
 	logger.Info("Init advice",
 		"advice", initAdvice)
 
+	// TODO не нужно if quietMode
 	pos, err := quikService.GetFuturesHolding(quik.GetFuturesHoldingRequest{
 		FirmId:  client.Firm,
 		AccId:   client.Portfolio,
@@ -319,6 +288,33 @@ func initStrategy(
 		secInfo:          getSecurityInfo(securityName),
 		basePrice:        0,
 	}, nil
+}
+
+func handleNewCandle(
+	logger *slog.Logger,
+	strategies []StrategyEntry,
+	newCandle quik.Candle,
+	quietMode bool,
+	quikService *quik.QuikService,
+	availableAmount float64,
+) error {
+	const interval = quik.CandleIntervalM5
+	if newCandle.Interval != interval {
+		return nil
+	}
+	for i := range strategies {
+		var strategy = &strategies[i]
+		if strategy.securityCode != newCandle.SecCode {
+			continue
+		}
+		var logger = logger.With("security", strategy.securityCode)
+		if quietMode {
+			return onNewCandle_QuietMode(logger, strategy, newCandle)
+		} else {
+			return onNewCandle(logger, strategy, newCandle, availableAmount, quikService)
+		}
+	}
+	return nil
 }
 
 func onNewCandle_QuietMode(

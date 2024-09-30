@@ -25,6 +25,10 @@ func (quik *QuikService) IsConnected() (bool, error) {
 	return resp == 1, err
 }
 
+func (quik *QuikService) MessageInfo(msg string) error {
+	return quik.ExecuteQuery("message", msg, nil)
+}
+
 type GetPortfolioInfoExRequest struct {
 	FirmId     string
 	ClientCode string
