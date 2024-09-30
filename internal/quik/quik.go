@@ -16,10 +16,10 @@ import (
 
 // Не потокобезопасный
 type QuikService struct {
-	id       int64
-	transId  int64
-	mainConn net.Conn
-	reader   *bufio.Reader
+	id      int64
+	transId int64
+	reader  *bufio.Reader
+	writer  *transform.Writer
 }
 
 func InitConnection(port int) (net.Conn, error) {
@@ -36,11 +36,12 @@ func InitConnection(port int) (net.Conn, error) {
 func NewQuikService(
 	mainConn net.Conn,
 ) *QuikService {
+	var quikCharmap = charmap.Windows1251
 	return &QuikService{
-		mainConn: mainConn,
-		reader:   bufio.NewReader(transform.NewReader(mainConn, charmap.Windows1251.NewDecoder())),
-		id:       1,
-		transId:  calculateStartTransId(),
+		reader:  bufio.NewReader(transform.NewReader(mainConn, quikCharmap.NewDecoder())),
+		writer:  transform.NewWriter(mainConn, quikCharmap.NewEncoder()),
+		id:      1,
+		transId: calculateStartTransId(),
 	}
 }
 
@@ -60,11 +61,12 @@ func (quik *QuikService) ExecuteQuery(
 	if err != nil {
 		return err
 	}
-	_, err = quik.mainConn.Write(b)
+	_, err = quik.writer.Write(b)
 	if err != nil {
 		return err
 	}
-	_, err = quik.mainConn.Write([]byte("\r\n"))
+	//TODO b=append(b, "\r\n")
+	_, err = quik.writer.Write([]byte("\r\n"))
 	if err != nil {
 		return err
 	}
