@@ -23,14 +23,7 @@ type QuikService struct {
 }
 
 func InitConnection(port int) (net.Conn, error) {
-	if port == 0 {
-		port = 34130
-	}
-	conn, err := net.Dial("tcp", "localhost:"+strconv.Itoa(port))
-	if err != nil {
-		return nil, err
-	}
-	return conn, nil
+	return net.Dial("tcp", "localhost:"+strconv.Itoa(port))
 }
 
 func NewQuikService(

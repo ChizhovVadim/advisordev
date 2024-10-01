@@ -32,6 +32,7 @@ func historyHandler(args []string) error {
 	flagset.StringVar(&timeframeName, "timeframe", timeframeName, "")
 	flagset.StringVar(&securityName, "security", securityName, "")
 	flagset.Float64Var(&lever, "lever", lever, "")
+	flagset.Float64Var(&slippage, "slippage", slippage, "")
 	flagset.IntVar(&startYear, "startyear", startYear, "")
 	flagset.IntVar(&startQuarter, "startquarter", startQuarter, "")
 	flagset.BoolVar(&multiContract, "multy", multiContract, "")
