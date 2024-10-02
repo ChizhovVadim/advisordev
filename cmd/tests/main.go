@@ -28,6 +28,8 @@ func run(args []string) error {
 		return updateHandler(args)
 	case "testdownload":
 		return testDownloadHandler(args)
+	case "testquik":
+		return testQuikHandler(args)
 	default:
 		return fmt.Errorf("bad command %v", cmdName)
 	}
