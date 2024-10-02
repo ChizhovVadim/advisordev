@@ -38,10 +38,10 @@ func NewQuikService(
 	}
 }
 
-func (quik *QuikService) ExecuteQuery(
+func (quik *QuikService) ExecuteQueryRaw(
 	command string,
-	request interface{},
-	response interface{},
+	request any,
+	response *ResponseJson,
 ) error {
 	var r = RequestJson{
 		Id:          quik.id,
@@ -67,16 +67,47 @@ func (quik *QuikService) ExecuteQuery(
 	if err != nil {
 		return err
 	}
-	var responseJson ResponseJson
-	err = json.Unmarshal([]byte(incoming), &responseJson)
+	err = json.Unmarshal([]byte(incoming), response)
 	if err != nil {
 		return err
 	}
-	if responseJson.LuaError != "" {
-		return errors.New(responseJson.LuaError)
+	if response.LuaError != "" {
+		return errors.New(response.LuaError)
 	}
-	if responseJson.Data != nil && response != nil {
-		var err = json.Unmarshal(*responseJson.Data, response)
+	return nil
+}
+
+func (quik *QuikService) ExecuteQueryMap(
+	command string,
+	request any,
+) (map[string]any, error) {
+	var resp ResponseJson
+	var err = quik.ExecuteQueryRaw(command, request, &resp)
+	if err != nil {
+		return nil, err
+	}
+	var res map[string]any
+	if resp.Data != nil {
+		err = json.Unmarshal(*resp.Data, &res)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (quik *QuikService) ExecuteQuery(
+	command string,
+	request any,
+	response any,
+) error {
+	var resp ResponseJson
+	var err = quik.ExecuteQueryRaw(command, request, &resp)
+	if err != nil {
+		return err
+	}
+	if resp.Data != nil && response != nil {
+		var err = json.Unmarshal(*resp.Data, response)
 		if err != nil {
 			return err
 		}
