@@ -3,14 +3,16 @@ package main
 import (
 	"advisordev/internal/quik"
 	"context"
+	"errors"
 	"flag"
+	"fmt"
 
 	"golang.org/x/sync/errgroup"
 )
 
 func testQuikHandler(args []string) error {
 	var (
-		port int = 34130
+		port int = 34132
 	)
 
 	var flagset = flag.NewFlagSet("", flag.ExitOnError)
@@ -41,7 +43,46 @@ func testQuikHandler(args []string) error {
 
 	g.Go(func() error {
 		defer callbackConn.Close()
-		return quikService.MessageInfo("Привет из go")
+
+		isConn, err := quikService.IsConnected()
+		if err != nil {
+			return err
+		}
+		if !isConn {
+			return errors.New("quik is not connected")
+		}
+
+		err = quikService.MessageInfo("Привет из go")
+		if err != nil {
+			return err
+		}
+
+		const (
+			ClassCode = "SPBFUT"
+			SecCode   = "CRZ4"
+		)
+
+		{
+			secInfo, err := quik.GetSecurityInfo(quikService, ClassCode, SecCode)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%#v\n", secInfo)
+			fmt.Println(quik.AsInt(secInfo["scale"]))
+			fmt.Println(quik.AsInt(secInfo["lot_size"]))
+			fmt.Println(quik.AsFloat64(secInfo["min_price_step"]))
+		}
+
+		{
+			paramPriceLast, err := quik.GetParamEx(quikService, ClassCode, SecCode, quik.ParamNameLAST)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%#v\n", paramPriceLast)
+			fmt.Println(quik.AsFloat64(paramPriceLast["param_value"]))
+		}
+
+		return nil
 	})
 
 	return g.Wait()

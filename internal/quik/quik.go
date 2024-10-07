@@ -77,16 +77,16 @@ func (quik *QuikService) ExecuteQueryRaw(
 	return nil
 }
 
-func (quik *QuikService) ExecuteQueryMap(
+func (quik *QuikService) ExecuteQueryDynamic(
 	command string,
 	request any,
-) (map[string]any, error) {
+) (any, error) {
 	var resp ResponseJson
 	var err = quik.ExecuteQueryRaw(command, request, &resp)
 	if err != nil {
 		return nil, err
 	}
-	var res map[string]any
+	var res any
 	if resp.Data != nil {
 		err = json.Unmarshal(*resp.Data, &res)
 		if err != nil {

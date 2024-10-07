@@ -114,3 +114,48 @@ func (quik *QuikService) SubscribeCandles(
 		fmt.Sprintf("%v|%v|%v", classCode, securityCode, interval),
 		&resp)
 }
+
+// scale - Количество значащих цифр после запятой
+// mat_date - Дата погашения (число YYYYMMDD)
+// lot_size - Размер лота
+// min_price_step - Минимальный шаг цены
+func GetSecurityInfo(
+	quik *QuikService,
+	classCode string,
+	secCode string,
+) (map[string]any, error) {
+	var resp, err = quik.ExecuteQueryDynamic("getSecurityInfo",
+		fmt.Sprintf("%v|%v", classCode, secCode))
+	var res, _ = resp.(map[string]any)
+	return res, err
+}
+
+const (
+	//Цена последней сделки
+	ParamNameLAST = "LAST"
+	/// Лучшая цена предложения
+	ParamNameOFFER = "OFFER"
+	/// Лучшая цена спроса
+	ParamNameBID = "BID"
+	/// Максимально возможная цена
+	ParamNamePRICEMAX = "PRICEMAX"
+	/// Минимально возможная цена
+	ParamNamePRICEMIN = "PRICEMIN"
+	/// Гарантийное обеспечение покуптеля
+	ParamNameBUYDEPO = "BUYDEPO"
+	/// Гарантийное обеспечение продавца
+	ParamNameSELLDEPO = "SELLDEPO"
+)
+
+// param_value
+func GetParamEx(
+	quik *QuikService,
+	classCode string,
+	secCode string,
+	paramName string,
+) (map[string]any, error) {
+	var resp, err = quik.ExecuteQueryDynamic("getParamEx",
+		fmt.Sprintf("%v|%v|%v", classCode, secCode, paramName))
+	var res, _ = resp.(map[string]any)
+	return res, err
+}
