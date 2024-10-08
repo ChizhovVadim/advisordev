@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const ClassCode = "SPBFUT"
+const FuturesClassCode = "SPBFUT"
 
 func isToday(d time.Time) bool {
 	var y1, m1, d1 = d.Date()

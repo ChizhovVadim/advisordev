@@ -2,9 +2,7 @@ package trader
 
 import (
 	"advisordev/internal/advisors"
-	"advisordev/internal/domain"
 	"advisordev/internal/quik"
-	"advisordev/internal/utils"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -23,7 +22,6 @@ func Run(
 	logger *slog.Logger,
 	strategyConfigs []advisors.StrategyConfig,
 	client Client,
-	quietMode bool,
 ) error {
 	logger.Info("trader::Run started.")
 	defer logger.Info("trader::Run stopped.")
@@ -55,7 +53,7 @@ func Run(
 
 	g.Go(func() error {
 		defer callbackConn.Close() // сможет завершиться handleCallbacks!
-		return runStrategies(ctx, gracefulShutdownCtx, logger, quikService, client, strategyConfigs, newCandles, quietMode)
+		return runStrategies(ctx, gracefulShutdownCtx, logger, quikService, client, strategyConfigs, newCandles)
 	})
 
 	return g.Wait()
@@ -93,18 +91,6 @@ func handleCallbacks(
 	return nil
 }
 
-type StrategyEntry struct {
-	firm             string
-	portfolio        string
-	securityName     string
-	securityCode     string
-	advisor          domain.Advisor
-	lastAdvice       domain.Advice
-	strategyPosition int
-	basePrice        float64
-	secInfo          SecurityInfo
-}
-
 func runStrategies(
 	ctx context.Context,
 	gracefulShutdownCtx context.Context,
@@ -113,7 +99,6 @@ func runStrategies(
 	client Client,
 	strategyConfigs []advisors.StrategyConfig,
 	newCandles <-chan quik.Candle,
-	quietMode bool,
 ) error {
 	logger.Info("Check connection")
 	connected, err := quikService.IsConnected()
@@ -124,26 +109,34 @@ func runStrategies(
 		return errors.New("quik is not connected")
 	}
 
-	var availableAmount float64
-	if !quietMode {
-		logger = logger.With("portfolio", client.Portfolio)
-		availableAmount, err = initPortfolio(logger, quikService, client)
-		if err != nil {
-			return err
-		}
+	logger = logger.With("portfolio", client.Portfolio)
+	availableAmount, err := initPortfolio(logger, quikService, client)
+	if err != nil {
+		return err
 	}
 
 	// init strategies
-	var strategies []StrategyEntry
+	var strategies []IStrategy
 	for _, strategyConfig := range strategyConfigs {
-		var strategy, err = initStrategy(
-			logger.With("security", strategyConfig.SecurityCode),
-			quikService, client, strategyConfig)
+		var strategy IStrategy
+		var strategyLogger = logger.With("security", strategyConfig.SecurityCode)
+		if strategyConfig.Trader == "" {
+			strategy, err = initStrategy(strategyLogger,
+				quikService, availableAmount, client.Firm, client.Portfolio, strategyConfig)
+		} else if strategyConfig.Trader == "quiet" {
+			strategy, err = initQuietStrategy(strategyLogger, quikService, strategyConfig)
+		} else {
+			err = fmt.Errorf("bad trader %v", strategyConfig.Trader)
+		}
 		if err != nil {
-			return err
+			strategyLogger.Error("initStrategy failed",
+				"err", err)
+			continue
 		}
 		strategies = append(strategies, strategy)
 	}
+
+	var checkPositionChan <-chan time.Time
 
 	// strategy cycle
 	for {
@@ -153,15 +146,28 @@ func runStrategies(
 		case <-gracefulShutdownCtx.Done():
 			logger.Info("graceful shutdown...")
 			return nil
+		case <-checkPositionChan:
+			checkPositionChan = nil
+			for i := range strategies {
+				var strategy = strategies[i]
+				strategy.CheckPosition()
+			}
 		case newCandle, ok := <-newCandles:
 			if !ok {
 				newCandles = nil
 				continue
 			}
-			var err = handleNewCandle(logger, strategies, newCandle, quietMode, quikService, availableAmount)
-			if err != nil {
-				logger.Error("handleNewCandle",
-					"err", err)
+			for i := range strategies {
+				var strategy = strategies[i]
+				orderRegistered, err := strategy.OnNewCandle(newCandle)
+				if err != nil {
+					logger.Error("handleNewCandle",
+						"err", err)
+					continue
+				}
+				if orderRegistered && checkPositionChan == nil {
+					checkPositionChan = time.After(30 * time.Second)
+				}
 			}
 		}
 	}
@@ -203,237 +209,5 @@ func initPortfolio(
 	logger.Info("Init portfolio",
 		"Amount", amount,
 		"AvailableAmount", availableAmount)
-	if availableAmount == 0 {
-		return 0, errors.New("availableAmount zero")
-	}
 	return availableAmount, nil
-}
-
-func initStrategy(
-	logger *slog.Logger,
-	quikService *quik.QuikService,
-	client Client,
-	strategyConfig advisors.StrategyConfig,
-) (StrategyEntry, error) {
-	const interval = quik.CandleIntervalM5
-
-	var advisor = advisors.Maindvisor(logger, strategyConfig)
-	var securityName = strategyConfig.SecurityCode
-	securityCode, err := utils.EncodeSecurity(securityName)
-	if err != nil {
-		return StrategyEntry{}, err
-	}
-	lastQuikCandles, err := quikService.GetLastCandles(
-		ClassCode, securityCode, interval, 0)
-	if err != nil {
-		return StrategyEntry{}, err
-	}
-
-	var lastCandles []domain.Candle
-	for _, quikCandle := range lastQuikCandles {
-		var candle = convertQuikCandle(securityName, quikCandle)
-		//if !candle.DateTime.Before(skipBefore) {
-		lastCandles = append(lastCandles, candle)
-		//}
-	}
-
-	// последний бар за сегодня может быть не завершен
-	if len(lastCandles) > 0 && isToday(lastCandles[len(lastCandles)-1].DateTime) {
-		lastCandles = lastCandles[:len(lastCandles)-1]
-	}
-
-	if len(lastCandles) == 0 {
-		logger.Warn("Ready candles empty")
-	} else {
-		logger.Info("Ready candles",
-			"First", lastCandles[0],
-			"Last", lastCandles[len(lastCandles)-1],
-			"Size", len(lastCandles))
-	}
-	var initAdvice domain.Advice
-	for _, candle := range lastCandles {
-		var advice = advisor(candle)
-		if !advice.DateTime.IsZero() {
-			initAdvice = advice
-		}
-	}
-	logger.Info("Init advice",
-		"advice", initAdvice)
-
-	// TODO не нужно if quietMode
-	pos, err := quikService.GetFuturesHolding(quik.GetFuturesHoldingRequest{
-		FirmId:  client.Firm,
-		AccId:   client.Portfolio,
-		SecCode: securityCode,
-	})
-	if err != nil {
-		return StrategyEntry{}, err
-	}
-	var initPosition = int(pos.TotalNet)
-	logger.Info("Init position",
-		"Position", initPosition)
-
-	err = quikService.SubscribeCandles(ClassCode, securityCode, interval)
-	if err != nil {
-		return StrategyEntry{}, err
-	}
-	return StrategyEntry{
-		firm:             client.Firm,
-		portfolio:        client.Portfolio,
-		securityName:     securityName,
-		securityCode:     securityCode,
-		advisor:          advisor,
-		lastAdvice:       initAdvice,
-		strategyPosition: initPosition,
-		secInfo:          getSecurityInfo(securityName),
-		basePrice:        0,
-	}, nil
-}
-
-func handleNewCandle(
-	logger *slog.Logger,
-	strategies []StrategyEntry,
-	newCandle quik.Candle,
-	quietMode bool,
-	quikService *quik.QuikService,
-	availableAmount float64,
-) error {
-	const interval = quik.CandleIntervalM5
-	if newCandle.Interval != interval {
-		return nil
-	}
-	for i := range strategies {
-		var strategy = &strategies[i]
-		if strategy.securityCode != newCandle.SecCode {
-			continue
-		}
-		var logger = logger.With("security", strategy.securityCode)
-		if quietMode {
-			return onNewCandle_QuietMode(logger, strategy, newCandle)
-		} else {
-			return onNewCandle(logger, strategy, newCandle, availableAmount, quikService)
-		}
-	}
-	return nil
-}
-
-func onNewCandle_QuietMode(
-	logger *slog.Logger,
-	strategy *StrategyEntry,
-	newCandle quik.Candle,
-) error {
-	var myCandle = convertQuikCandle(strategy.securityName, newCandle)
-	var advice = strategy.advisor(myCandle)
-	if advice.DateTime.IsZero() {
-		return nil
-	}
-	logger.Info("New advice",
-		"Advice", advice)
-	return nil
-}
-
-func onNewCandle(
-	logger *slog.Logger,
-	strategy *StrategyEntry,
-	newCandle quik.Candle,
-	availableAmount float64,
-	quikService *quik.QuikService,
-) error {
-	var myCandle = convertQuikCandle(strategy.securityName, newCandle)
-	var advice = strategy.advisor(myCandle)
-	if advice.DateTime.IsZero() {
-		return nil
-	}
-	if strategy.basePrice == 0 {
-		strategy.basePrice = myCandle.ClosePrice
-		logger.Info("Init base price",
-			"Advice", advice)
-	}
-	strategy.lastAdvice = advice
-	// размер лота
-	var position = availableAmount / (strategy.basePrice * strategy.secInfo.Lever) * advice.Position
-	var volume = int(position - float64(strategy.strategyPosition))
-	if volume == 0 {
-		return nil
-	}
-	logger.Info("New advice",
-		"Advice", advice)
-	err := checkPosition(logger, strategy, quikService)
-	if err != nil {
-		return err
-	}
-	err = registerOrder(logger, quikService, strategy.portfolio, strategy.securityCode, volume, advice.Price, strategy.secInfo.PricePrecision)
-	if err != nil {
-		return fmt.Errorf("registerOrder failed %w", err)
-	}
-	strategy.strategyPosition += volume
-	return nil
-}
-
-func checkPosition(
-	logger *slog.Logger,
-	strategy *StrategyEntry,
-	quikService *quik.QuikService,
-) error {
-	pos, err := quikService.GetFuturesHolding(quik.GetFuturesHoldingRequest{
-		FirmId:  strategy.firm,
-		AccId:   strategy.portfolio,
-		SecCode: strategy.securityCode,
-	})
-	if err != nil {
-		return err
-	}
-	var traderPosition = int(pos.TotalNet)
-	if strategy.strategyPosition == traderPosition {
-		logger.Info("Check position",
-			"Position", strategy.strategyPosition,
-			"Status", "+")
-		return nil
-	} else {
-		logger.Warn("Check position",
-			"StrategyPosition", strategy.strategyPosition,
-			"TraderPosition", traderPosition,
-			"Status", "!")
-		return fmt.Errorf("StrategyPosition!=TraderPosition")
-	}
-}
-
-func registerOrder(
-	logger *slog.Logger,
-	quikService *quik.QuikService,
-	portfolio, security string,
-	volume int,
-	price float64,
-	pricePrecision int,
-) error {
-	const Slippage = 0.001
-	if volume > 0 {
-		price = price * (1 + Slippage)
-	} else {
-		price = price * (1 - Slippage)
-	}
-	//TODO планка
-	var sPrice = formatPrice(price, pricePrecision)
-	logger.Info("Register order",
-		"Price", sPrice,
-		"Volume", volume)
-	var trans = quik.Transaction{
-		ACTION:    "NEW_ORDER",
-		SECCODE:   security,
-		CLASSCODE: ClassCode,
-		ACCOUNT:   portfolio,
-		PRICE:     sPrice,
-	}
-	if volume > 0 {
-		trans.OPERATION = "B"
-		trans.QUANTITY = strconv.Itoa(volume)
-	} else {
-		trans.OPERATION = "S"
-		trans.QUANTITY = strconv.Itoa(-volume)
-	}
-	return quikService.SendTransaction(trans)
-}
-
-func formatPrice(price float64, pricePrecision int) string {
-	return strconv.FormatFloat(price, 'f', pricePrecision, 64) //шаг цены
 }

@@ -1,5 +1,12 @@
 package trader
 
+import "advisordev/internal/quik"
+
+type IStrategy interface {
+	OnNewCandle(newCandle quik.Candle) (bool, error)
+	CheckPosition() error
+}
+
 type Client struct {
 	Key            string  `xml:",attr"`
 	Firm           string  `xml:",attr"`
@@ -12,6 +19,10 @@ type Client struct {
 }
 
 type SecurityInfo struct {
+	// точность (кол-во знаков после запятой). Если шаг цены может быть не круглым (0.05), то этого будет недостаточно.
 	PricePrecision int
-	Lever          float64
+	// шаг цены
+	PriceStep float64
+	// число базового актива в контракте
+	Lever float64
 }

@@ -41,10 +41,8 @@ func main() {
 
 func run(logWrapper *LogWrapper) error {
 	var clientKey string
-	var quietMode bool
 
 	flag.StringVar(&clientKey, "client", "", "client key")
-	flag.BoolVar(&quietMode, "quiet", quietMode, "")
 	flag.Parse()
 
 	settings, err := loadSettings(utils.MapPath("./luatrader.xml"))
@@ -99,7 +97,7 @@ func run(logWrapper *LogWrapper) error {
 	defer fQuikCallback.Close()
 	var quikCallbackLogger = log.New(fQuikCallback, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)*/
 
-	return trader.Run(logger, settings.StrategyConfigs, client, quietMode)
+	return trader.Run(logger, settings.StrategyConfigs, client)
 }
 
 func buildLogFilePath(clientKey string, date time.Time, name string) string {

@@ -7,7 +7,9 @@ import (
 )
 
 type StrategyConfig struct {
+	Trader        string  `xml:",attr"`
 	Name          string  `xml:",attr"`
+	ClassCode     string  `xml:",attr"`
 	SecurityCode  string  `xml:",attr"`
 	Lever         float64 `xml:",attr"`
 	MaxLever      float64 `xml:",attr"`
