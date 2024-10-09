@@ -22,6 +22,8 @@ func run(args []string) error {
 	switch cmdName {
 	case "history":
 		return historyHandler(args)
+	case "portfolio":
+		return portfolioHandler(args)
 	case "status":
 		return statusHandler(args)
 	case "update":
