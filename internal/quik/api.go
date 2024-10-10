@@ -115,6 +115,24 @@ func (quik *QuikService) SubscribeCandles(
 		&resp)
 }
 
+func (quik *QuikService) UnsubscribeCandles(
+	classCode, securityCode string, interval CandleInterval) error {
+	var _, err = quik.ExecuteQueryDynamic(
+		"unsubscribe_from_candles",
+		fmt.Sprintf("%v|%v|%v", classCode, securityCode, interval))
+	return err
+}
+
+func (quik *QuikService) IsCandleSubscribed(
+	classCode, securityCode string, interval CandleInterval) (bool, error) {
+	var resp bool
+	var err = quik.ExecuteQuery(
+		"is_subscribed",
+		fmt.Sprintf("%v|%v|%v", classCode, securityCode, interval),
+		&resp)
+	return resp, err
+}
+
 // scale - Количество значащих цифр после запятой
 // mat_date - Дата погашения (число YYYYMMDD)
 // lot_size - Размер лота

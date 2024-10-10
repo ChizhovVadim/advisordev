@@ -4,7 +4,6 @@ import (
 	"advisordev/internal/advisors"
 	"advisordev/internal/domain"
 	"advisordev/internal/quik"
-	"advisordev/internal/utils"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,8 +17,6 @@ type Strategy struct {
 	availableAmount  float64
 	firm             string
 	portfolio        string
-	securityName     string
-	securityCode     string
 	advisor          domain.Advisor
 	lastAdvice       domain.Advice
 	strategyPosition int
@@ -35,59 +32,33 @@ func initStrategy(
 	portfolio string,
 	strategyConfig advisors.StrategyConfig,
 ) (*Strategy, error) {
+	logger = logger.
+		With("security", strategyConfig.SecurityCode).
+		With("advisor", strategyConfig.Name).
+		With("strategy", "Strategy")
+
 	if availableAmount == 0 {
 		return nil, errors.New("availableAmount zero")
 	}
 
 	const interval = quik.CandleIntervalM5
 
-	var advisor = advisors.Maindvisor(logger, strategyConfig)
-	var securityName = strategyConfig.SecurityCode
-	securityCode, err := utils.EncodeSecurity(securityName)
-	if err != nil {
-		return nil, err
-	}
-	lastQuikCandles, err := quikService.GetLastCandles(
-		FuturesClassCode, securityCode, interval, 0)
+	secInfo, err := getSecurityInfoHardCode(strategyConfig.SecurityCode)
 	if err != nil {
 		return nil, err
 	}
 
-	var lastCandles []domain.Candle
-	for _, quikCandle := range lastQuikCandles {
-		var candle = convertQuikCandle(securityName, quikCandle)
-		//if !candle.DateTime.Before(skipBefore) {
-		lastCandles = append(lastCandles, candle)
-		//}
-	}
-
-	// последний бар за сегодня может быть не завершен
-	if len(lastCandles) > 0 && isToday(lastCandles[len(lastCandles)-1].DateTime) {
-		lastCandles = lastCandles[:len(lastCandles)-1]
-	}
-
-	if len(lastCandles) == 0 {
-		logger.Warn("Ready candles empty")
-	} else {
-		logger.Info("Ready candles",
-			"First", lastCandles[0],
-			"Last", lastCandles[len(lastCandles)-1],
-			"Size", len(lastCandles))
-	}
+	var advisor domain.Advisor
 	var initAdvice domain.Advice
-	for _, candle := range lastCandles {
-		var advice = advisor(candle)
-		if !advice.DateTime.IsZero() {
-			initAdvice = advice
-		}
+	err = initAdvisor(logger, quikService, strategyConfig, secInfo, &advisor, &initAdvice)
+	if err != nil {
+		return nil, err
 	}
-	logger.Info("Init advice",
-		"advice", initAdvice)
 
 	pos, err := quikService.GetFuturesHolding(quik.GetFuturesHoldingRequest{
 		FirmId:  firm,
 		AccId:   portfolio,
-		SecCode: securityCode,
+		SecCode: secInfo.Code,
 	})
 	if err != nil {
 		return nil, err
@@ -96,22 +67,22 @@ func initStrategy(
 	logger.Info("Init position",
 		"Position", initPosition)
 
-	err = quikService.SubscribeCandles(FuturesClassCode, securityCode, interval)
+	// TODO проверять не подписаны ли уже. где-нибудь отписываться?
+	err = quikService.SubscribeCandles(secInfo.ClassCode, secInfo.Code, interval)
 	if err != nil {
 		return nil, err
 	}
+
 	return &Strategy{
 		logger:           logger,
 		quikService:      quikService,
 		availableAmount:  availableAmount,
 		firm:             firm,
 		portfolio:        portfolio,
-		securityName:     securityName,
-		securityCode:     securityCode,
+		secInfo:          secInfo,
 		advisor:          advisor,
 		lastAdvice:       initAdvice,
 		strategyPosition: initPosition,
-		secInfo:          getSecurityInfo(securityName),
 		basePrice:        0,
 	}, nil
 }
@@ -120,11 +91,11 @@ func (s *Strategy) OnNewCandle(
 	newCandle quik.Candle,
 ) (bool, error) {
 	if !(newCandle.Interval == quik.CandleIntervalM5 &&
-		s.securityCode == newCandle.SecCode) {
+		newCandle.SecCode == s.secInfo.Code) {
 		return false, nil
 	}
 
-	var myCandle = convertQuikCandle(s.securityName, newCandle)
+	var myCandle = convertQuikCandle(s.secInfo.Name, newCandle)
 	var advice = s.advisor(myCandle)
 	if advice.DateTime.IsZero() {
 		return false, nil
@@ -162,7 +133,7 @@ func (s *Strategy) CheckPosition() error {
 	pos, err := s.quikService.GetFuturesHolding(quik.GetFuturesHoldingRequest{
 		FirmId:  s.firm,
 		AccId:   s.portfolio,
-		SecCode: s.securityCode,
+		SecCode: s.secInfo.Code,
 	})
 	if err != nil {
 		return err
@@ -200,8 +171,8 @@ func (s *Strategy) registerOrder(
 		"Volume", volume)
 	var trans = quik.Transaction{
 		ACTION:    "NEW_ORDER",
-		SECCODE:   s.securityCode,
-		CLASSCODE: FuturesClassCode,
+		SECCODE:   s.secInfo.Code,
+		CLASSCODE: s.secInfo.ClassCode,
 		ACCOUNT:   s.portfolio,
 		PRICE:     sPrice,
 	}

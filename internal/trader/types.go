@@ -19,10 +19,18 @@ type Client struct {
 }
 
 type SecurityInfo struct {
+	// Название инструмента
+	Name string
+	// Код инструмента
+	Code string
+	// Код класса
+	ClassCode string
 	// точность (кол-во знаков после запятой). Если шаг цены может быть не круглым (0.05), то этого будет недостаточно.
 	PricePrecision int
 	// шаг цены
 	PriceStep float64
-	// число базового актива в контракте
+	// Стоимость шага цены
+	PriceStepCost float64
+	// Плечо. Для фьючерсов = PriceStepCost/PriceStep.
 	Lever float64
 }

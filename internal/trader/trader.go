@@ -119,17 +119,17 @@ func runStrategies(
 	var strategies []IStrategy
 	for _, strategyConfig := range strategyConfigs {
 		var strategy IStrategy
-		var strategyLogger = logger.With("security", strategyConfig.SecurityCode)
 		if strategyConfig.Trader == "" {
-			strategy, err = initStrategy(strategyLogger,
+			strategy, err = initStrategy(logger,
 				quikService, availableAmount, client.Firm, client.Portfolio, strategyConfig)
 		} else if strategyConfig.Trader == "quiet" {
-			strategy, err = initQuietStrategy(strategyLogger, quikService, strategyConfig)
+			strategy, err = initQuietStrategy(logger, quikService, strategyConfig)
 		} else {
 			err = fmt.Errorf("bad trader %v", strategyConfig.Trader)
 		}
 		if err != nil {
-			strategyLogger.Error("initStrategy failed",
+			logger.Error("initStrategy failed",
+				"strategyConfig", strategyConfig,
 				"err", err)
 			continue
 		}
