@@ -12,7 +12,7 @@ import (
 func statusHandler(args []string) error {
 	var (
 		advisorName   = ""
-		timeframeName = candles.TFMinutes5
+		timeframeName = domain.CandleIntervalMinutes5
 		securityName  = "CNY-12.24"
 	)
 

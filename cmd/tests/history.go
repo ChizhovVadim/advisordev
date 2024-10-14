@@ -29,7 +29,7 @@ func historyHandler(args []string) error {
 	var today = time.Now()
 	var t = HistoryTest{
 		advisorName:   "",
-		timeframeName: candles.TFMinutes5,
+		timeframeName: domain.CandleIntervalMinutes5,
 		securityName:  "CNY",
 		lever:         9.0,
 		slippage:      0.0002,

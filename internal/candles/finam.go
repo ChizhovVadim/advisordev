@@ -77,13 +77,13 @@ func finamUrl(securityCode, periodCode string,
 }
 
 func finamTimeFrame(tf string) string {
-	if tf == TFMinutes5 {
+	if tf == domain.CandleIntervalMinutes5 {
 		return "3"
 	}
-	if tf == TFHourly {
+	if tf == domain.CandleIntervalHourly {
 		return "7"
 	}
-	if tf == TFDaily {
+	if tf == domain.CandleIntervalDaily {
 		return "8"
 	}
 	return ""

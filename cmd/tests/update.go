@@ -15,7 +15,7 @@ import (
 func updateHandler(args []string) error {
 	var (
 		providerName  string
-		timeframeName string = candles.TFMinutes5
+		timeframeName string = domain.CandleIntervalMinutes5
 		securityName  string
 		startDate     utils.DateValue
 		maxDays       int

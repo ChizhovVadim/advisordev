@@ -2,6 +2,12 @@ package domain
 
 import "time"
 
+const (
+	CandleIntervalMinutes5 = "minutes5"
+	CandleIntervalHourly   = "hourly"
+	CandleIntervalDaily    = "daily"
+)
+
 type Candle struct {
 	SecurityCode string
 	DateTime     time.Time

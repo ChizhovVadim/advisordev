@@ -1,7 +1,7 @@
 package main
 
 import (
-	"advisordev/internal/candles"
+	"advisordev/internal/domain"
 	"advisordev/internal/utils"
 	"flag"
 	"fmt"
@@ -12,7 +12,7 @@ import (
 func testDownloadHandler(args []string) error {
 	var (
 		providerName  string
-		timeframeName string = candles.TFMinutes5
+		timeframeName string = domain.CandleIntervalMinutes5
 		securityName  string
 	)
 

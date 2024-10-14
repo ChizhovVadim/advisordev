@@ -1,9 +1,11 @@
 package trader
 
-import "advisordev/internal/quik"
+import (
+	"advisordev/internal/domain"
+)
 
 type IStrategy interface {
-	OnNewCandle(newCandle quik.Candle) (bool, error)
+	OnNewCandle(newCandle domain.Candle) (bool, error)
 	CheckPosition() error
 }
 
@@ -16,21 +18,4 @@ type Client struct {
 	MaxAmount      float64 `xml:",attr"`
 	Weight         float64 `xml:",attr"`
 	Port           int     `xml:",attr"`
-}
-
-type SecurityInfo struct {
-	// Название инструмента
-	Name string
-	// Код инструмента
-	Code string
-	// Код класса
-	ClassCode string
-	// точность (кол-во знаков после запятой). Если шаг цены может быть не круглым (0.05), то этого будет недостаточно.
-	PricePrecision int
-	// шаг цены
-	PriceStep float64
-	// Стоимость шага цены
-	PriceStepCost float64
-	// Плечо. Для фьючерсов = PriceStepCost/PriceStep.
-	Lever float64
 }

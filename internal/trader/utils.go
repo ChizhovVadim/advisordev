@@ -2,32 +2,30 @@ package trader
 
 import (
 	"advisordev/internal/domain"
-	"advisordev/internal/quik"
 	"advisordev/internal/utils"
 	"fmt"
 	"strings"
-	"time"
 )
 
-const FuturesClassCode = "SPBFUT"
-const CurrencyClassCode = "CETS"
+const (
+	FuturesClassCode  = domain.FuturesClassCode
+	CurrencyClassCode = "CETS"
+	// Акции и ДР
+	StockClassCode = "TQBR"
+	// ETF
+	ETFClassCode = "TQTF"
+)
 
-func isToday(d time.Time) bool {
-	var y1, m1, d1 = d.Date()
-	var y2, m2, d2 = time.Now().Date()
-	return y1 == y2 && m1 == m2 && d1 == d2
-}
-
-func getSecurityInfoHardCode(securityName string) (SecurityInfo, error) {
+func getSecurityInfoHardCode(securityName string) (domain.SecurityInfo, error) {
 	if securityName == "CNYRUB_TOM" {
-		return SecurityInfo{
+		return domain.SecurityInfo{
 			Name:      securityName,
 			ClassCode: CurrencyClassCode,
 			Code:      securityName,
 		}, nil
 	}
 	if securityName == "CNYRUBF" {
-		return SecurityInfo{
+		return domain.SecurityInfo{
 			Name:           securityName,
 			ClassCode:      FuturesClassCode,
 			Code:           securityName,
@@ -40,9 +38,9 @@ func getSecurityInfoHardCode(securityName string) (SecurityInfo, error) {
 	if strings.HasPrefix(securityName, "CNY") {
 		securityCode, err := utils.EncodeSecurity(securityName)
 		if err != nil {
-			return SecurityInfo{}, err
+			return domain.SecurityInfo{}, err
 		}
-		return SecurityInfo{
+		return domain.SecurityInfo{
 			Name:           securityName,
 			ClassCode:      FuturesClassCode,
 			Code:           securityCode,
@@ -52,22 +50,14 @@ func getSecurityInfoHardCode(securityName string) (SecurityInfo, error) {
 			Lever:          1000,
 		}, nil
 	}
-	return SecurityInfo{}, fmt.Errorf("secInfo not found %v", securityName)
+	return domain.SecurityInfo{}, fmt.Errorf("secInfo not found %v", securityName)
 }
 
-func convertQuikCandle(security string, candle quik.Candle) domain.Candle {
-	return domain.Candle{
-		SecurityCode: security,
-		DateTime:     convertQuikDateTime(candle.Datetime, utils.Moscow),
-		OpenPrice:    candle.Open,
-		HighPrice:    candle.High,
-		LowPrice:     candle.Low,
-		ClosePrice:   candle.Close,
-		Volume:       candle.Volume,
+func priceWithSlippage(price float64, volume int) float64 {
+	const Slippage = 0.001
+	if volume > 0 {
+		return price * (1 + Slippage)
+	} else {
+		return price * (1 - Slippage)
 	}
-}
-
-func convertQuikDateTime(t quik.QuikDateTime, loc *time.Location) time.Time {
-	//TODO ms
-	return time.Date(t.Year, time.Month(t.Month), t.Day, t.Hour, t.Min, t.Sec, 0, loc)
 }

@@ -2,17 +2,15 @@ package trader
 
 import (
 	"advisordev/internal/advisors"
+	"advisordev/internal/domain"
 	"advisordev/internal/quik"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
 	"os"
 	"os/signal"
-	"strconv"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -26,82 +24,41 @@ func Run(
 	logger.Info("trader::Run started.")
 	defer logger.Info("trader::Run stopped.")
 
-	gracefulShutdownCtx, gracefulShutdownCancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer gracefulShutdownCancel()
+	var connector = quik.NewQuikConnector(logger, client.Port)
+	defer connector.Close()
 
-	mainConn, err := quik.InitConnection(client.Port)
+	var err = connector.Init()
 	if err != nil {
 		return err
 	}
-	defer mainConn.Close()
-
-	var quikService = quik.NewQuikService(mainConn)
-
-	callbackConn, err := quik.InitConnection(client.Port + 1)
-	if err != nil {
-		return err
-	}
-	defer callbackConn.Close()
 
 	g, ctx := errgroup.WithContext(context.Background())
 
-	var newCandles = make(chan quik.Candle, 16)
+	var newCandles = make(chan domain.Candle, 16)
 
 	g.Go(func() error {
-		return handleCallbacks(ctx, logger, callbackConn, newCandles)
+		return connector.HandleCallbacks(ctx, newCandles)
 	})
 
 	g.Go(func() error {
-		defer callbackConn.Close() // сможет завершиться handleCallbacks!
-		return runStrategies(ctx, gracefulShutdownCtx, logger, quikService, client, strategyConfigs, newCandles)
+		defer connector.Close()
+		return runStrategies(ctx, logger, connector, client, strategyConfigs, newCandles)
 	})
 
 	return g.Wait()
 }
 
-func handleCallbacks(
-	ctx context.Context,
-	logger *slog.Logger,
-	r io.Reader,
-	newCandles chan<- quik.Candle,
-) error {
-	for cj, err := range quik.QuikCallbacks(r) {
-		if err != nil {
-			return err
-		}
-		if cj.LuaError != "" {
-			logger.Error("handleCallbacks",
-				"LuaError", cj.LuaError)
-			continue
-		}
-		if cj.Command == quik.EventNameNewCandle && cj.Data != nil {
-			var newCandle quik.Candle
-			var err = json.Unmarshal(*cj.Data, &newCandle)
-			if err != nil {
-				return err
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case newCandles <- newCandle:
-			}
-			continue
-		}
-	}
-	return nil
-}
-
 func runStrategies(
 	ctx context.Context,
-	gracefulShutdownCtx context.Context,
 	logger *slog.Logger,
-	quikService *quik.QuikService,
+	connector domain.IConnector,
 	client Client,
 	strategyConfigs []advisors.StrategyConfig,
-	newCandles <-chan quik.Candle,
+	newCandles <-chan domain.Candle,
 ) error {
+
 	logger.Info("Check connection")
-	connected, err := quikService.IsConnected()
+	connected, err := connector.IsConnected()
 	if err != nil {
 		return err
 	}
@@ -109,22 +66,32 @@ func runStrategies(
 		return errors.New("quik is not connected")
 	}
 
-	logger = logger.With("portfolio", client.Portfolio)
-	availableAmount, err := initPortfolio(logger, quikService, client)
+	logger.Info("Init portfolio")
+	var portfolio = domain.PortfolioInfo{
+		Firm:      client.Firm,
+		Portfolio: client.Portfolio,
+	}
+	logger = logger.With("portfolio", portfolio.Portfolio)
+
+	startAmount, err := connector.IncomingAmount(portfolio)
 	if err != nil {
 		return err
 	}
+	availableAmount := calcAvailableAmount(startAmount, client)
+	logger.Info("Init portfolio",
+		"Amount", startAmount,
+		"AvailableAmount", availableAmount)
 
 	// init strategies
 	var strategies []IStrategy
 	for _, strategyConfig := range strategyConfigs {
 		var strategy IStrategy
-		if strategyConfig.Trader == "" {
-			strategy, err = initStrategy(logger,
-				quikService, availableAmount, client.Firm, client.Portfolio, strategyConfig)
-		} else if strategyConfig.Trader == "quiet" {
-			strategy, err = initQuietStrategy(logger, quikService, strategyConfig)
-		} else {
+		switch strategyConfig.Trader {
+		case "quiet":
+			strategy, err = initQuietStrategy(logger, connector, strategyConfig)
+		case "":
+			strategy, err = initStrategy(logger, connector, availableAmount, portfolio, strategyConfig)
+		default:
 			err = fmt.Errorf("bad trader %v", strategyConfig.Trader)
 		}
 		if err != nil {
@@ -138,12 +105,15 @@ func runStrategies(
 
 	var checkPositionChan <-chan time.Time
 
+	interruptCh := make(chan os.Signal, 1)
+	signal.Notify(interruptCh, os.Interrupt)
+
 	// strategy cycle
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-gracefulShutdownCtx.Done():
+		case <-interruptCh:
 			logger.Info("graceful shutdown...")
 			return nil
 		case <-checkPositionChan:
@@ -173,41 +143,18 @@ func runStrategies(
 	}
 }
 
-func initPortfolio(
-	logger *slog.Logger,
-	quikService *quik.QuikService,
-	client Client,
-) (float64, error) {
-	logger.Info("Init portfolio...")
-	resp, err := quikService.GetPortfolioInfoEx(quik.GetPortfolioInfoExRequest{
-		FirmId:     client.Firm,
-		ClientCode: client.Portfolio,
-	})
-	if err != nil {
-		return 0, err
-	}
-	if !resp.Valid() {
-		return 0, errors.New("portfolio not found")
-	}
-	amount, err := strconv.ParseFloat(resp.StartLimitOpenPos, 64)
-	if err != nil {
-		return 0, err
-	}
-	var availableAmount float64
+func calcAvailableAmount(startAmount float64, client Client) float64 {
+	var result float64
 	if client.Amount > 0 {
-		availableAmount = client.Amount
+		result = client.Amount
 	} else {
-		availableAmount = amount
+		result = startAmount
 	}
 	if client.MaxAmount > 0 {
-		availableAmount = math.Min(availableAmount, client.MaxAmount)
+		result = math.Min(result, client.MaxAmount)
 	}
 	if 0 < client.Weight && client.Weight < 1 {
-		availableAmount *= client.Weight
+		result *= client.Weight
 	}
-
-	logger.Info("Init portfolio",
-		"Amount", amount,
-		"AvailableAmount", availableAmount)
-	return availableAmount, nil
+	return result
 }

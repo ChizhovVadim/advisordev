@@ -1,7 +1,7 @@
 package main
 
 import (
-	"advisordev/internal/candles"
+	"advisordev/internal/domain"
 	"advisordev/internal/history"
 	"runtime"
 )
@@ -12,7 +12,7 @@ func portfolioHandler([]string) error {
 	hprsCNY, err := calcDailyHprs(HistoryTest{
 		securityName:  "CNY",
 		advisorName:   "",
-		timeframeName: candles.TFMinutes5,
+		timeframeName: domain.CandleIntervalMinutes5,
 		multiContract: true,
 		startYear:     2024,
 		startQuarter:  0,
@@ -28,7 +28,7 @@ func portfolioHandler([]string) error {
 	hprsGold, err := calcDailyHprs(HistoryTest{
 		securityName:  "GLDRUB_TOM",
 		advisorName:   "",
-		timeframeName: candles.TFMinutes5,
+		timeframeName: domain.CandleIntervalMinutes5,
 		multiContract: false,
 		lever:         9.0,
 		slippage:      0.0002,
