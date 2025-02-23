@@ -17,6 +17,16 @@ type CandleStorage struct {
 	loc        *time.Location
 }
 
+func NewCandleStorageByPath(
+	folderPath string,
+	loc *time.Location,
+) *CandleStorage {
+	return &CandleStorage{
+		folderPath: folderPath, //os.MkdirAll(folderPath, os.ModePerm)
+		loc:        loc,
+	}
+}
+
 func NewCandleStorage(
 	folderPath string,
 	timeframe string,
@@ -33,7 +43,7 @@ func (srv *CandleStorage) fileName(securityCode string) string {
 }
 
 // obsolete
-func (srv *CandleStorage) Walk(securityCode string,
+func (srv *CandleStorage) _walk(securityCode string,
 	onCandle func(domain.Candle) error) error {
 	var path = srv.fileName(securityCode)
 	var file, err = os.Open(path)
@@ -111,7 +121,7 @@ func (srv *CandleStorage) Last(securityCode string) (domain.Candle, error) {
 	}
 
 	var result domain.Candle
-	err = srv.Walk(securityCode, func(c domain.Candle) error {
+	err = srv._walk(securityCode, func(c domain.Candle) error {
 		result = c
 		return nil
 	})

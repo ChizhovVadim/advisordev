@@ -1,11 +1,12 @@
 package main
 
 import (
+	"advisordev/internal/candles"
+	"advisordev/internal/cli"
+	"advisordev/internal/moex"
 	"advisordev/internal/trader"
-	"advisordev/internal/utils"
 	"flag"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -18,36 +19,15 @@ var (
 	buildDate   string
 )
 
-type LogWrapper struct {
-	logger *slog.Logger
-	closer io.Closer
-}
-
 func main() {
-	var logWrapper = &LogWrapper{
-		logger: slog.New(slog.NewJSONHandler(os.Stderr, nil)),
-	}
-	defer func() {
-		if logWrapper.closer != nil {
-			logWrapper.closer.Close()
-		}
-	}()
-	var err = run(logWrapper)
-	if err != nil {
-		logWrapper.logger.Error("app failed",
-			"error", err)
-	}
-}
-
-func run(logWrapper *LogWrapper) error {
 	var clientKey string
 
 	flag.StringVar(&clientKey, "client", "", "client key")
 	flag.Parse()
 
-	settings, err := loadSettings(utils.MapPath("./luatrader.xml"))
+	settings, err := loadSettings(cli.MapPath("~/TradingData/luatrader.xml"))
 	if err != nil {
-		return err
+		panic(err)
 	}
 
 	if clientKey == "" && len(settings.Clients) > 1 {
@@ -57,81 +37,59 @@ func run(logWrapper *LogWrapper) error {
 
 	client, err := findClient(settings.Clients, clientKey)
 	if err != nil {
-		return err
+		panic(err)
 	}
 
 	var today = time.Now()
-
-	err = initLogger(logWrapper, client.Key, today)
-	if err != nil {
-		return err
-	}
-
-	var logger = logWrapper.logger
-
-	logger.Info("Application started.")
-	defer logger.Info("Application closed.")
-
-	logger.Info("Environment",
-		"BuildDate", buildDate,
-		"GitRevision", gitRevision)
-
-	logger.Info("runtime",
-		"Version", runtime.Version(),
-		"NumCPU", runtime.NumCPU(),
-		"GOMAXPROCS", runtime.GOMAXPROCS(0))
-
-	// quik message log
-	/*fQuikLog, err := os.OpenFile(buildLogFilePath(client.Key, today, "quik"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
-	if err != nil {
-		return err
-	}
-	defer fQuikLog.Close()
-	var quikLogger = log.New(fQuikLog, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
-
-	// quik callback message log
-	fQuikCallback, err := os.OpenFile(buildLogFilePath(client.Key, today, "quikcallback"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
-	if err != nil {
-		return err
-	}
-	defer fQuikCallback.Close()
-	var quikCallbackLogger = log.New(fQuikCallback, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)*/
-
-	return trader.Run(logger, settings.StrategyConfigs, client)
-}
-
-func buildLogFilePath(clientKey string, date time.Time, name string) string {
-	var logFolderPath = filepath.Join(utils.MapPath("~/TradingData/Logs/luatrader"), clientKey)
-	var dateName = date.Format("2006-01-02")
-	return filepath.Join(logFolderPath, dateName+name+".log")
-}
-
-func initLogger(logWrapper *LogWrapper, clientKey string, date time.Time) error {
-	var logFilePath = buildLogFilePath(clientKey, date, "")
-
-	/*err := os.MkdirAll(logFolderPath, os.ModePerm)
-	if err != nil {
-		return err
-	}*/
+	var logFilePath = buildLogFilePath(clientKey, today, "")
 
 	// main log
-	fLog, err := os.OpenFile(logFilePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+	fLog, err := appendFile(logFilePath)
 	if err != nil {
-		return err
+		panic(err)
 	}
-	logWrapper.closer = fLog //вместо defer fLog.Close()
+	defer fLog.Close()
 
-	// подменяем logger
-	logWrapper.logger = slog.New(Fanout(
+	var logger = slog.New(cli.Fanout(
 		slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelInfo,
 		}),
 		slog.NewJSONHandler(fLog, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
+			Level:     slog.LevelDebug,
+			AddSource: false,
 		}),
 	)).With("client", clientKey)
 
-	return nil
+	err = run(logger, settings, client)
+	if err != nil {
+		logger.Error("run failed",
+			"error", err)
+		return
+	}
+}
+
+func run(
+	logger *slog.Logger,
+	settings Settings,
+	client trader.Client,
+) error {
+	logger.Debug("Application started.")
+	defer logger.Debug("Application closed.")
+
+	logger.Debug("Environment",
+		"BuildDate", buildDate,
+		"GitRevision", gitRevision)
+
+	logger.Debug("runtime",
+		"Version", runtime.Version(),
+		"NumCPU", runtime.NumCPU(),
+		"GOMAXPROCS", runtime.GOMAXPROCS(0))
+
+	// временно такой путь:
+	var candleStorage = candles.NewCandleStorageByPath(cli.MapPath("~/TradingData/Forts"), moex.TimeZone)
+	//var candleInterval = domain.CandleIntervalMinutes5
+	//var candleStorage = candles.NewCandleStorage(cli.MapPath("~/TradingData"), candleInterval, moex.TimeZone)
+	return trader.Run(logger, candleStorage, client, settings.StrategyConfigs)
 }
 
 func findClient(clients []trader.Client, clientKey string) (trader.Client, error) {
@@ -144,4 +102,18 @@ func findClient(clients []trader.Client, clientKey string) (trader.Client, error
 		}
 	}
 	return trader.Client{}, fmt.Errorf("no client found %v", clientKey)
+}
+
+func buildLogFilePath(clientKey string, date time.Time, name string) string {
+	var logFolderPath = filepath.Join(cli.MapPath("~/TradingData/Logs/luatrader"), clientKey)
+	var err = os.MkdirAll(logFolderPath, os.ModePerm)
+	if err != nil {
+		panic(err)
+	}
+	var dateName = date.Format("2006-01-02")
+	return filepath.Join(logFolderPath, dateName+name+".txt")
+}
+
+func appendFile(name string) (*os.File, error) {
+	return os.OpenFile(name, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 }

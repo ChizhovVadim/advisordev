@@ -10,9 +10,9 @@ import (
 	"strconv"
 
 	"advisordev/internal/domain"
+	"advisordev/internal/moex"
 )
 
-// Не потокобезопасный
 type QuikConnector struct {
 	logger       *slog.Logger
 	port         int
@@ -84,7 +84,7 @@ func (c *QuikConnector) GetPosition(
 	portfolio domain.PortfolioInfo,
 	security domain.SecurityInfo,
 ) (float64, error) {
-	if security.ClassCode == domain.FuturesClassCode {
+	if security.ClassCode == moex.FuturesClassCode {
 		pos, err := c.quikService.GetFuturesHolding(GetFuturesHoldingRequest{
 			FirmId:  portfolio.Firm,
 			AccId:   portfolio.Portfolio,
@@ -100,31 +100,28 @@ func (c *QuikConnector) GetPosition(
 }
 
 func (c *QuikConnector) RegisterOrder(
-	portfolio domain.PortfolioInfo,
-	security domain.SecurityInfo,
-	volume int,
-	price float64,
+	order domain.Order,
 ) error {
 	//TODO планка
-	//TODO price = utils.RoundToStep(price, security.PriceStep)
-	var sPrice = formatPrice(price, security.PricePrecision)
+	var sPrice = formatPrice(order.Security.PriceStep, order.Security.PricePrecision, order.Price)
 	var trans = Transaction{
 		ACTION:    "NEW_ORDER",
-		SECCODE:   security.Code,
-		CLASSCODE: security.ClassCode,
-		ACCOUNT:   portfolio.Portfolio,
+		SECCODE:   order.Security.Code,
+		CLASSCODE: order.Security.ClassCode,
+		ACCOUNT:   order.Portfolio.Portfolio,
 		PRICE:     sPrice,
 	}
-	if volume > 0 {
+	if order.Volume > 0 {
 		trans.OPERATION = "B"
-		trans.QUANTITY = strconv.Itoa(volume)
+		trans.QUANTITY = strconv.Itoa(order.Volume)
 	} else {
 		trans.OPERATION = "S"
-		trans.QUANTITY = strconv.Itoa(-volume)
+		trans.QUANTITY = strconv.Itoa(-order.Volume)
 	}
 	return c.quikService.SendTransaction(trans)
 }
 
+// TODO startTime time.Time
 func (c *QuikConnector) GetLastCandles(
 	security domain.SecurityInfo,
 	timeframe string,
@@ -133,7 +130,8 @@ func (c *QuikConnector) GetLastCandles(
 	if err != nil {
 		return nil, err
 	}
-	lastQuikCandles, err := c.quikService.GetLastCandles(security.ClassCode, security.Code, interval, 0)
+	const count = 5_000 // Если не указывать размер, то может прийти слишком много баров и unmarshal большой json
+	lastQuikCandles, err := c.quikService.GetLastCandles(security.ClassCode, security.Code, interval, count)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +170,7 @@ func (c *QuikConnector) SubscribeCandles(
 		if err != nil {
 			return err
 		}
-		c.logger.Info("Subscribed",
+		c.logger.Debug("Subscribed",
 			"security", security.Name,
 			"timeframe", timeframe)
 	}
@@ -189,7 +187,7 @@ func (c *QuikConnector) LastPrice(security domain.SecurityInfo) (float64, error)
 
 func (c *QuikConnector) HandleCallbacks(
 	ctx context.Context,
-	newCandles chan<- domain.Candle,
+	candles chan<- domain.Candle,
 ) error {
 	for cj, err := range QuikCallbacks(c.callbackConn) {
 		if err != nil {
@@ -201,16 +199,17 @@ func (c *QuikConnector) HandleCallbacks(
 			continue
 		}
 		if cj.Command == EventNameNewCandle {
-			if cj.Data != nil && newCandles != nil {
+			if cj.Data != nil && candles != nil {
 				var newCandle Candle
 				var err = json.Unmarshal(*cj.Data, &newCandle)
 				if err != nil {
 					return err
 				}
+				// TODO можно фильтровать слишком ранние бары
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
-				case newCandles <- convertQuikCandle(newCandle):
+				case candles <- convertQuikCandle(newCandle):
 				}
 			}
 			continue

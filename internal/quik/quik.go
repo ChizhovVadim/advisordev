@@ -8,14 +8,15 @@ import (
 	"iter"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/transform"
 )
 
-// Не потокобезопасный
 type QuikService struct {
+	mu      sync.Mutex
 	id      int64
 	transId int64
 	reader  *bufio.Reader
@@ -31,6 +32,7 @@ func NewQuikService(
 ) *QuikService {
 	var quikCharmap = charmap.Windows1251
 	return &QuikService{
+		mu:      sync.Mutex{},
 		reader:  bufio.NewReader(transform.NewReader(mainConn, quikCharmap.NewDecoder())),
 		writer:  transform.NewWriter(mainConn, quikCharmap.NewEncoder()),
 		id:      1,
@@ -38,11 +40,15 @@ func NewQuikService(
 	}
 }
 
+// потокобезопасный
 func (quik *QuikService) ExecuteQueryRaw(
 	command string,
 	request any,
 	response *ResponseJson,
 ) error {
+	quik.mu.Lock()
+	defer quik.mu.Unlock()
+
 	var r = RequestJson{
 		Id:          quik.id,
 		Command:     command,

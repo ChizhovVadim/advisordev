@@ -19,11 +19,40 @@ type Candle struct {
 }
 
 type Advice struct {
-	SecurityCode string
+	SecurityCode string // сюда пишем SecurityCode или SecurityName?
 	DateTime     time.Time
 	Price        float64
 	Position     float64
-	Details      interface{}
+	Details      interface{} //Хотим чтобы JSONHandler писал лог `json:"-"`
 }
 
 type Advisor func(Candle) Advice
+
+type PortfolioInfo struct {
+	Firm      string
+	Portfolio string
+}
+
+type SecurityInfo struct {
+	// Название инструмента
+	Name string
+	// Код инструмента
+	Code string
+	// Код класса
+	ClassCode string
+	// точность (кол-во знаков после запятой). Если шаг цены может быть не круглым (0.05), то этого будет недостаточно.
+	PricePrecision int
+	// шаг цены
+	PriceStep float64
+	// Стоимость шага цены
+	PriceStepCost float64
+	// Плечо. Для фьючерсов = PriceStepCost/PriceStep.
+	Lever float64
+}
+
+type Order struct {
+	Portfolio PortfolioInfo
+	Security  SecurityInfo
+	Volume    int
+	Price     float64
+}

@@ -2,14 +2,18 @@ package quik
 
 import (
 	"advisordev/internal/domain"
-	"advisordev/internal/utils"
+	"advisordev/internal/moex"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 )
 
-func formatPrice(price float64, pricePrecision int) string {
-	return strconv.FormatFloat(price, 'f', pricePrecision, 64) //шаг цены
+func formatPrice(priceStep float64, pricePrecision int, price float64) string {
+	if priceStep != 0 {
+		price = math.Round(price/priceStep) * priceStep
+	}
+	return strconv.FormatFloat(price, 'f', pricePrecision, 64)
 }
 
 func quikTimeframe(timeframe string) (CandleInterval, error) {
@@ -22,7 +26,7 @@ func quikTimeframe(timeframe string) (CandleInterval, error) {
 func convertQuikCandle(candle Candle) domain.Candle {
 	return domain.Candle{
 		SecurityCode: candle.SecCode,
-		DateTime:     convertQuikDateTime(candle.Datetime, utils.Moscow),
+		DateTime:     convertQuikDateTime(candle.Datetime, moex.TimeZone),
 		OpenPrice:    candle.Open,
 		HighPrice:    candle.High,
 		LowPrice:     candle.Low,
