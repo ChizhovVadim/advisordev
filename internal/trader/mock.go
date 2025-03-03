@@ -35,3 +35,11 @@ func (c *MockTrader) RegisterOrder(order domain.Order) error {
 	c.positions[order.Security.Code] += float64(order.Volume)
 	return nil
 }
+
+func (c *MockTrader) GetLastCandles(security domain.SecurityInfo, timeframe string) ([]domain.Candle, error) {
+	return nil, nil
+}
+
+func (c *MockTrader) SubscribeCandles(security domain.SecurityInfo, timeframe string) error {
+	return nil
+}

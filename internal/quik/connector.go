@@ -85,6 +85,7 @@ func (c *QuikConnector) GetPosition(
 	security domain.SecurityInfo,
 ) (float64, error) {
 	if security.ClassCode == moex.FuturesClassCode {
+		//TODO log warning if data empty
 		pos, err := c.quikService.GetFuturesHolding(GetFuturesHoldingRequest{
 			FirmId:  portfolio.Firm,
 			AccId:   portfolio.Portfolio,

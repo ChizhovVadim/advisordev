@@ -5,8 +5,6 @@ import (
 	"advisordev/internal/cli"
 	"advisordev/internal/moex"
 	"advisordev/internal/trader"
-	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -20,31 +18,12 @@ var (
 )
 
 func main() {
-	var clientKey string
-
-	flag.StringVar(&clientKey, "client", "", "client key")
-	flag.Parse()
-
-	settings, err := loadSettings(cli.MapPath("~/TradingData/luatrader.xml"))
+	settings, err := trader.LoadConfig("trader.xml")
 	if err != nil {
 		panic(err)
 	}
 
-	if clientKey == "" && len(settings.Clients) > 1 {
-		fmt.Printf("Enter client: ")
-		fmt.Scanln(&clientKey)
-	}
-
-	client, err := findClient(settings.Clients, clientKey)
-	if err != nil {
-		panic(err)
-	}
-
-	var today = time.Now()
-	var logFilePath = buildLogFilePath(clientKey, today, "")
-
-	// main log
-	fLog, err := appendFile(logFilePath)
+	fLog, err := appendFile(buildLogFilePath(time.Now()))
 	if err != nil {
 		panic(err)
 	}
@@ -58,9 +37,11 @@ func main() {
 			Level:     slog.LevelDebug,
 			AddSource: false,
 		}),
-	)).With("client", clientKey)
+	))
 
-	err = run(logger, settings, client)
+	//slog.SetDefault(logger)
+
+	err = run(logger, settings)
 	if err != nil {
 		logger.Error("run failed",
 			"error", err)
@@ -70,8 +51,7 @@ func main() {
 
 func run(
 	logger *slog.Logger,
-	settings Settings,
-	client trader.Client,
+	config trader.TraderConfig,
 ) error {
 	logger.Debug("Application started.")
 	defer logger.Debug("Application closed.")
@@ -89,29 +69,17 @@ func run(
 	var candleStorage = candles.NewCandleStorageByPath(cli.MapPath("~/TradingData/Forts"), moex.TimeZone)
 	//var candleInterval = domain.CandleIntervalMinutes5
 	//var candleStorage = candles.NewCandleStorage(cli.MapPath("~/TradingData"), candleInterval, moex.TimeZone)
-	return trader.Run(logger, candleStorage, client, settings.StrategyConfigs)
+	return trader.Run(logger, candleStorage, config)
 }
 
-func findClient(clients []trader.Client, clientKey string) (trader.Client, error) {
-	if clientKey == "" && len(clients) == 1 {
-		return clients[0], nil
-	}
-	for i := range clients {
-		if clients[i].Key == clientKey {
-			return clients[i], nil
-		}
-	}
-	return trader.Client{}, fmt.Errorf("no client found %v", clientKey)
-}
-
-func buildLogFilePath(clientKey string, date time.Time, name string) string {
-	var logFolderPath = filepath.Join(cli.MapPath("~/TradingData/Logs/luatrader"), clientKey)
+func buildLogFilePath(date time.Time) string {
+	var logFolderPath = cli.MapPath("~/TradingData/Logs/luatrader")
 	var err = os.MkdirAll(logFolderPath, os.ModePerm)
 	if err != nil {
 		panic(err)
 	}
 	var dateName = date.Format("2006-01-02")
-	return filepath.Join(logFolderPath, dateName+name+".txt")
+	return filepath.Join(logFolderPath, dateName+".txt")
 }
 
 func appendFile(name string) (*os.File, error) {

@@ -2,7 +2,7 @@ package main
 
 import (
 	"advisordev/internal/cli"
-	"log"
+	"log/slog"
 )
 
 func main() {
@@ -13,7 +13,8 @@ func main() {
 	app.AddCommand("update", updateHandler)
 	var err = app.Run()
 	if err != nil {
-		log.Println(err)
+		slog.Error("run failed",
+			"error", err)
 		return
 	}
 }

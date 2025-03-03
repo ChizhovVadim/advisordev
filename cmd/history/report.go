@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+// Комиссия за заключение сделок + Клиринговая комиссия + Комисия брокера + Проскальзывание
+// https://www.moex.com/s93
+const defaultSlippage = ((0.00462+0.00154)*2 + 0.01) * 0.01
+
 func reportHandler(args []string) error {
 	var today = time.Now()
 	var (
@@ -17,7 +21,7 @@ func reportHandler(args []string) error {
 		timeframeName string = domain.CandleIntervalMinutes5
 		securityName  string
 		lever         float64
-		slippage      float64 = 0.0002
+		slippage      float64 = defaultSlippage
 		startYear     int     = today.Year()
 		startQuarter  int     = 0
 		finishYear    int     = today.Year()

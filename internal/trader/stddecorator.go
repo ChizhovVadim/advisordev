@@ -31,7 +31,7 @@ func withPosition(adv domain.Advice, position float64, name string) domain.Advic
 	type AdviceDetails struct {
 		Name          string
 		ChildPosition float64
-		ChildDetails  interface{}
+		ChildDetails  any
 	}
 
 	const LogDetails = true
@@ -39,6 +39,7 @@ func withPosition(adv domain.Advice, position float64, name string) domain.Advic
 		return adv
 	}
 	var result = domain.Advice{
+		Advisor:      adv.Advisor,
 		SecurityCode: adv.SecurityCode,
 		DateTime:     adv.DateTime,
 		Price:        adv.Price,

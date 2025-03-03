@@ -18,11 +18,11 @@ func TestAdvisor(name string) domain.Advisor {
 func sampleAdvisor() domain.Advisor {
 	return func(c domain.Candle) domain.Advice {
 		return domain.Advice{
+			Advisor:      "sample",
 			SecurityCode: c.SecurityCode,
 			DateTime:     c.DateTime,
 			Price:        c.ClosePrice,
 			Position:     0,
-			Details:      "sample",
 		}
 	}
 }

@@ -19,11 +19,12 @@ type Candle struct {
 }
 
 type Advice struct {
+	Advisor      string
 	SecurityCode string // сюда пишем SecurityCode или SecurityName?
 	DateTime     time.Time
 	Price        float64
 	Position     float64
-	Details      interface{} //Хотим чтобы JSONHandler писал лог `json:"-"`
+	Details      any
 }
 
 type Advisor func(Candle) Advice

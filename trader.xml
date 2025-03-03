@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+    <Client Key="vadim" Type="quik" Port="34128" MarketData="true">
+        <Portfolio Firm="SPBFUT" Account="1234567" MaxAmount="10000000">
+            <Strategy Advisor="main" Security="Si-3.25" />
+        </Portfolio>
+    </Client>
+    <Client Key="paper" Type="mock" />
+    <Signal Advisor="main" Security="Si-3.25" Lever="9" MaxLever="7" StdVolatility="0.006"
+        Weight="1.0" />
+</root>

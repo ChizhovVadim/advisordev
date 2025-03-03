@@ -8,11 +8,6 @@ type ICandleStorage interface {
 	Candles(securityCode string) iter.Seq2[Candle, error]
 }
 
-type IAdvisorService interface {
-	PublishAdvice(advice Advice) error
-	GetLastAdvices() ([]Advice, error)
-}
-
 type ISecurityInformator interface {
 	GetSecurityInfo(securityName string) (SecurityInfo, error)
 }
